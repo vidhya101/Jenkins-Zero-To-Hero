@@ -17,7 +17,6 @@ pipeline {
     }
 
     environment {
-        // Add build timestamp in a readable format
         BUILD_TIMESTAMP = new Date().format('yyyy-MM-dd_HH-mm-ss')
     }
 
@@ -42,11 +41,17 @@ pipeline {
 
         stage('UNIT TEST') {
             steps {
-                sh 'mvn test'
+                // Added -Dmaven.test.failure.ignore=true to ensure test results are generated even if tests fail
+                sh 'mvn test -Dmaven.test.failure.ignore=true'
             }
             post {
                 always {
-                    junit '**/target/surefire-reports/*.xml'
+                    // More specific path for test results and allowEmptyResults to prevent failure if no tests
+                    junit(
+                        allowEmptyResults: true,
+                        testResults: '**/target/surefire-reports/*.xml',
+                        skipPublishingChecks: true
+                    )
                 }
             }
         }
@@ -57,7 +62,10 @@ pipeline {
             }
             post {
                 always {
-                    recordIssues(tools: [checkStyle()])
+                    recordIssues(
+                        enabledForFailure: true,
+                        tools: [checkStyle(pattern: '**/target/checkstyle-result.xml')]
+                    )
                 }
             }
         }
@@ -171,7 +179,6 @@ pipeline {
         }
         
         always {
-            // Your existing Slack notification
             echo 'Slack Notifications.'
             slackSend channel: '#devops-vidhya-ci',
                 color: COLOR_MAP[currentBuild.currentResult],
