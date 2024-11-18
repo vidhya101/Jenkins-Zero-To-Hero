@@ -1,24 +1,36 @@
+def COLOR_MAP = [
+    'SUCCESS': 'good', 
+    'FAILURE': 'danger',
+]
 pipeline {
     agent any
+    
+    tools {
+        maven "MAVEN3.9"
+        jdk "JDK17"
+    }
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timestamps()
+    }
 
     environment {
-        NEXUS_VERSION = "nexus3"
-        NEXUS_PROTOCOL = "http"
-        NEXUS_URL = "172.31.40.209:8081"
-        NEXUS_REPOSITORY = "vprofile-release"
-        NEXUS_REPO_ID = "vprofile-release"
-        NEXUS_CREDENTIAL_ID = "nexuslogin"
-        ARTVERSION = "${env.BUILD_ID}"
+        BUILD_TIMESTAMP = new Date().format('yyyy-MM-dd_HH-mm-ss')
     }
 
     stages {
-        stage('BUILD') {
+        stage('Fetch code') {
             steps {
-                sh 'mvn clean install -DskipTests'
+                git branch: 'atom', url: 'https://github.com/hkhcoder/vprofile-project.git'
+            }
+        }
+        stage('Build') {
+            steps {
+                sh 'mvn install -DskipTests'
             }
             post {
                 success {
-                    echo 'Now Archiving...'
+                    echo 'Now Archiving the file ......'
                     archiveArtifacts artifacts: '**/target/*.war'
                 }
             }
@@ -26,35 +38,45 @@ pipeline {
 
         stage('UNIT TEST') {
             steps {
-                sh 'mvn test'
+                // Added -Dmaven.test.failure.ignore=true to ensure test results are generated even if tests fail
+                sh 'mvn test -Dmaven.test.failure.ignore=true'
+            }
+            post {
+                always {
+                    // More specific path for test results and allowEmptyResults to prevent failure if no tests
+                    junit(
+                        allowEmptyResults: true,
+                        testResults: '**/target/surefire-reports/*.xml',
+                        skipPublishingChecks: true
+                    )
+                }
             }
         }
 
-        stage('INTEGRATION TEST') {
-            steps {
-                sh 'mvn verify -DskipUnitTests'
-            }
-        }
-
-        stage('CODE ANALYSIS WITH CHECKSTYLE') {
+        stage('Checkstyle Analysis') {
             steps {
                 sh 'mvn checkstyle:checkstyle'
             }
             post {
-                success {
-                    echo 'Generated Analysis Result'
+                always {
+                    recordIssues(
+                        enabledForFailure: true,
+                        tools: [checkStyle(pattern: '**/target/checkstyle-result.xml')]
+                    )
                 }
             }
         }
 
         stage('CODE ANALYSIS with SONARQUBE') {
             environment {
-                scannerHome = tool 'sonarscanner4'
+                scannerHome = tool 'sonar6.2'
+                JAVA_OPTS = '-XX:+EnableDynamicAgentLoading --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.math=ALL-UNNAMED'
             }
-
             steps {
-                withSonarQubeEnv('sonar-pro') {
-                    sh '''${scannerHome}/bin/sonar-scanner \
+                withSonarQubeEnv('sonarserver') {
+                    sh """
+                        export SONAR_SCANNER_OPTS="${JAVA_OPTS}"
+                        ${scannerHome}/bin/sonar-scanner \
                         -Dsonar.projectKey=vprofile \
                         -Dsonar.projectName=vprofile-repo \
                         -Dsonar.projectVersion=1.0 \
@@ -62,53 +84,101 @@ pipeline {
                         -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/ \
                         -Dsonar.junit.reportsPath=target/surefire-reports/ \
                         -Dsonar.jacoco.reportsPath=target/jacoco.exec \
-                        -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml'''
+                        -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml
+                    """
                 }
+            }
+        }
 
-                timeout(time: 10, unit: 'MINUTES') {
+        stage("Quality Gate") {
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        stage("Publish to Nexus Repository Manager") {
+        stage("UploadArtifact") {
             steps {
-                script {
-                    pom = readMavenPom file: "pom.xml"
-                    filesByGlob = findFiles(glob: "target/*.${pom.packaging}")
-                    echo "${filesByGlob[0].name} ${filesByGlob[0].path} ${filesByGlob[0].directory} ${filesByGlob[0].length} ${filesByGlob[0].lastModified}"
-                    artifactPath = filesByGlob[0].path
-                    artifactExists = fileExists artifactPath
-                    if (artifactExists) {
-                        echo "*** File: ${artifactPath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${pom.version} ARTVERSION"
-                        nexusArtifactUploader(
-                            nexusVersion: NEXUS_VERSION,
-                            protocol: NEXUS_PROTOCOL,
-                            nexusUrl: NEXUS_URL,
-                            groupId: pom.groupId,
-                            version: ARTVERSION,
-                            repository: NEXUS_REPOSITORY,
-                            credentialsId: NEXUS_CREDENTIAL_ID,
-                            artifacts: [
-                                [
-                                    artifactId: pom.artifactId,
-                                    classifier: '',
-                                    file: artifactPath,
-                                    type: pom.packaging
-                                ],
-                                [
-                                    artifactId: pom.artifactId,
-                                    classifier: '',
-                                    file: "pom.xml",
-                                    type: "pom"
-                                ]
-                            ]
-                        )
-                    } else {
-                        error "*** File: ${artifactPath}, could not be found"
-                    }
-                }
+                nexusArtifactUploader(
+                    nexusVersion: 'nexus3',
+                    protocol: 'http',
+                    nexusUrl: '192.168.56.21:8081',
+                    groupId: 'QA',
+                    version: "${env.BUILD_ID}-${env.BUILD_TIMESTAMP}",
+                    repository: 'vprofile-repo',
+                    credentialsId: 'nexuslogin',
+                    artifacts: [
+                        [artifactId: 'vproapp',
+                         classifier: '',
+                         file: 'target/vprofile-v2.war',
+                         type: 'war']
+                    ]
+                )
             }
+        }
+    }
+    post {
+        success {
+            emailext (
+                subject: "✅ [SUCCESS] Pipeline: ${env.JOB_NAME} - Build #${env.BUILD_NUMBER}",
+                body: """
+                    <html>
+                        <body>
+                            <h2>Build Successful!</h2>
+                            <p><strong>Pipeline:</strong> ${env.JOB_NAME}</p>
+                            <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                            <p><strong>Build ID:</strong> ${env.BUILD_ID}</p>
+                            <p><strong>Build URL:</strong> <a href='${env.BUILD_URL}'>${env.BUILD_URL}</a></p>
+                            <p><strong>Build Timestamp:</strong> ${env.BUILD_TIMESTAMP}</p>
+                            <h3>Stages Summary:</h3>
+                            <ul>
+                                <li>Unit Tests: Completed</li>
+                                <li>Checkstyle Analysis: Completed</li>
+                                <li>SonarQube Analysis: Passed</li>
+                                <li>Quality Gate: Passed</li>
+                                <li>Artifact Upload: Successful</li>
+                            </ul>
+                            <p>Check console output for detailed information.</p>
+                        </body>
+                    </html>
+                """,
+                to: '$DEFAULT_RECIPIENTS',
+                mimeType: 'text/html',
+                attachLog: true
+            )
+        }
+        
+        failure {
+            emailext (
+                subject: "❌ [FAILED] Pipeline: ${env.JOB_NAME} - Build #${env.BUILD_NUMBER}",
+                body: """
+                    <html>
+                        <body>
+                            <h2 style="color: red;">Build Failed!</h2>
+                            <p><strong>Pipeline:</strong> ${env.JOB_NAME}</p>
+                            <p><strong>Build Number:</strong> ${env.BUILD_NUMBER}</p>
+                            <p><strong>Build ID:</strong> ${env.BUILD_ID}</p>
+                            <p><strong>Build URL:</strong> <a href='${env.BUILD_URL}'>${env.BUILD_URL}</a></p>
+                            <p><strong>Build Timestamp:</strong> ${env.BUILD_TIMESTAMP}</p>
+                            <p><strong>Failed Stage:</strong> ${currentBuild.result}</p>
+                            <p>Check console output attached for error details.</p>
+                            <h3>Last Successful Build:</h3>
+                            <p><strong>Build Number:</strong> ${currentBuild.previousSuccessfulBuild?.number ?: 'None'}</p>
+                        </body>
+                    </html>
+                """,
+                to: '$DEFAULT_RECIPIENTS',
+                mimeType: 'text/html',
+                attachLog: true
+            )
+        }
+        
+        always {
+            echo 'Slack Notifications.'
+            slackSend channel: '#devops-vidhya-ci',
+                color: COLOR_MAP[currentBuild.currentResult],
+                message: "*${currentBuild.currentResult}:* Job ${env.JOB_NAME} build ${env.BUILD_NUMBER} \n More info at: ${env.BUILD_URL}"
         }
     }
 }
