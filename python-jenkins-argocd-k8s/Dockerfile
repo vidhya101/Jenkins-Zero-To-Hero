@@ -3,7 +3,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     gcc \
@@ -14,11 +13,13 @@ RUN apt-get update && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all files and immediately list directory contents
 COPY . .
-RUN ls -la /app
+# Add these debugging commands
+RUN echo "Contents of /app directory:" && \
+    ls -la /app && \
+    echo "Current working directory:" && \
+    pwd
 
-# Continue with your original commands
 RUN python manage.py migrate && python manage.py collectstatic --noinput
 EXPOSE 8000
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
