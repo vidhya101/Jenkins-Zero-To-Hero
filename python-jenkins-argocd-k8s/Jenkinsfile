@@ -3,56 +3,85 @@ pipeline {
     
     environment {
         IMAGE_TAG = "${BUILD_NUMBER}"
-        DOCKER_HUB_CREDS = credentials('docker-hub-credentials') // Update this ID to match your Jenkins credentials
     }
     
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                // Clean workspace before checkout
+                cleanWs()
+                
+                // Checkout your repository
+                git branch: 'main',
+                    url: 'https://github.com/vidhya101/Jenkins-Zero-To-Hero.git'
+                
+                // Verify workspace contents
+                sh 'ls -la'
+            }
+        }
+
+        stage('Prepare Environment') {
+            steps {
+                script {
+                    // Create Dockerfile if it doesn't exist
+                    writeFile file: 'Dockerfile', text: '''
+FROM python:3.9-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \\
+    PYTHONUNBUFFERED=1 \\
+    PIP_DISABLE_PIP_VERSION_CHECK=on
+
+WORKDIR /app
+
+RUN apt-get update && \\
+    apt-get install -y --no-install-recommends \\
+    gcc \\
+    python3-dev \\
+    libpq-dev && \\
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN python manage.py migrate && \\
+    python manage.py collectstatic --noinput
+
+EXPOSE 8000
+
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+'''
+                    
+                    // Create requirements.txt if it doesn't exist
+                    writeFile file: 'requirements.txt', text: '''
+Django==3.2.10
+gunicorn==20.1.0
+django-environ==0.8.1
+psycopg2-binary==2.9.3
+whitenoise==5.3.0
+'''
+                    
+                    // Verify files were created
+                    sh '''
+                        echo "Workspace contents:"
+                        ls -la
+                        echo "\nDockerfile contents:"
+                        cat Dockerfile
+                        echo "\nrequirements.txt contents:"
+                        cat requirements.txt
+                    '''
+                }
             }
         }
 
         stage('Build Docker') {
             steps {
-                sh """
-                    echo 'Building Docker Image'
-                    docker build -t abhishekf5/cicd-e2e:${IMAGE_TAG} .
-                """
-            }
-        }
-
-        stage('Push to Docker Hub') {
-            steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        sh """
-                            echo '${DOCKER_PASSWORD}' | docker login -u '${DOCKER_USERNAME}' --password-stdin
-                            docker push abhishekf5/cicd-e2e:${IMAGE_TAG}
-                            docker logout
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('Update K8S Manifests') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: 'github-credentials', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
-                        sh """
-                            git clone https://github.com/iam-veeramalla/cicd-demo-manifests-repo.git
-                            cd cicd-demo-manifests-repo
-                            git config user.email "jenkins@example.com"
-                            git config user.name "Jenkins Pipeline"
-                            
-                            sed -i "s|:32|:${IMAGE_TAG}|g" deploy.yaml
-                            
-                            git add deploy.yaml
-                            git commit -m "Updated deployment to version ${IMAGE_TAG}"
-                            git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/iam-veeramalla/cicd-demo-manifests-repo.git HEAD:main
-                        """
-                    }
+                    sh """
+                        echo 'Building Docker Image'
+                        docker build -t abhishekf5/cicd-e2e:${IMAGE_TAG} .
+                    """
                 }
             }
         }
