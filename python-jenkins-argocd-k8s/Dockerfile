@@ -1,12 +1,6 @@
-# Base image
 FROM python:3.9-slim
-
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=on
-
-# Set working directory
+    PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install system dependencies
@@ -17,15 +11,14 @@ RUN apt-get update && \
     libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy all files and immediately list directory contents
 COPY . .
+RUN ls -la /app
 
-# Expose port
+# Continue with your original commands
+RUN python manage.py migrate && python manage.py collectstatic --noinput
 EXPOSE 8000
-
-# Use a script to handle database operations and start the server
-CMD ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
