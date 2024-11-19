@@ -1,27 +1,35 @@
-# Base image
+# Use official Python runtime as a base image
 FROM python:3.9-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=on
+
+# Set work directory
+WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    python3-distutils \
+    gcc \
+    python3-dev \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
-
-# Copy requirements first to leverage Docker cache
+# Install Python dependencies
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project files
 COPY . .
 
-# Run migrations
-RUN python manage.py migrate
+# Run migrations and collect static files
+RUN python manage.py migrate && \
+    python manage.py collectstatic --noinput
 
 # Expose port
 EXPOSE 8000
 
-# Command to run the application
+# Start the application
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
