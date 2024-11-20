@@ -106,7 +106,7 @@ pipeline {
                     nexusUrl: '192.168.56.21:8081',
                     groupId: 'QA',
                     version: "${env.BUILD_ID}-${env.BUILD_TIMESTAMP}",
-                    repository: 'vprofile-repo',
+                    repository: 'vprofile-central-repo',
                     credentialsId: "${env.NEXUS_LOGIN}",
                     artifacts: [
                         [artifactId: 'vproapp',
