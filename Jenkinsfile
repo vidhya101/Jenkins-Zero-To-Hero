@@ -107,7 +107,7 @@ pipeline {
                     groupId: 'QA',
                     version: "${env.BUILD_ID}-${env.BUILD_TIMESTAMP}",
                     repository: 'vprofile-repo',
-                    credentialsId: "$(NEXUS_LOGIN)",
+                    credentialsId: "${env.NEXUS_LOGIN}",
                     artifacts: [
                         [artifactId: 'vproapp',
                          classifier: '',
