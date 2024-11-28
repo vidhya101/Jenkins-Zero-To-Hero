@@ -39,12 +39,10 @@ pipeline {
 
         stage('UNIT TEST') {
             steps {
-                // Added -Dmaven.test.failure.ignore=true to ensure test results are generated even if tests fail
                 sh 'mvn test -Dmaven.test.failure.ignore=true'
             }
             post {
                 always {
-                    // More specific path for test results and allowEmptyResults to prevent failure if no tests
                     junit(
                         allowEmptyResults: true,
                         testResults: '**/target/surefire-reports/*.xml',
@@ -63,6 +61,31 @@ pipeline {
                     recordIssues(
                         enabledForFailure: true,
                         tools: [checkStyle(pattern: '**/target/checkstyle-result.xml')]
+                    )
+                }
+            }
+        }
+
+        stage('OWASP Dependency-Check') {
+            steps {
+                dependencyCheck additionalArguments: '''
+                    -o "./"
+                    -s "./"
+                    -f "ALL"
+                    --disableYarnAudit
+                    --disableNodeAudit
+                ''', odcInstallation: 'OWASP-Dependency-Check'
+                
+                dependencyCheckPublisher pattern: 'dependency-check-report.xml'
+            }
+            post {
+                always {
+                    // Optional: Set failure threshold for vulnerabilities
+                    dependencyCheckPublisher(
+                        failedTotalCritical: 5,
+                        failedTotalHigh: 10,
+                        failedTotalMedium: 20,
+                        failedTotalLow: 50
                     )
                 }
             }
@@ -136,6 +159,7 @@ pipeline {
                             <ul>
                                 <li>Unit Tests: Completed</li>
                                 <li>Checkstyle Analysis: Completed</li>
+                                <li>OWASP Dependency-Check: Completed</li>
                                 <li>SonarQube Analysis: Passed</li>
                                 <li>Quality Gate: Passed</li>
                                 <li>Artifact Upload: Successful</li>
