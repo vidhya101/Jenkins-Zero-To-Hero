@@ -66,28 +66,10 @@ pipeline {
             }
         }
 
-        stage('OWASP Dependency-Check') {
+        stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck additionalArguments: '''
-                    -o "./"
-                    -s "./"
-                    -f "ALL"
-                    --disableYarnAudit
-                    --disableNodeAudit
-                ''', odcInstallation: 'OWASP-Dependency-Check'
-                
-                dependencyCheckPublisher pattern: 'dependency-check-report.xml'
-            }
-            post {
-                always {
-                    // Optional: Set failure threshold for vulnerabilities
-                    dependencyCheckPublisher(
-                        failedTotalCritical: 5,
-                        failedTotalHigh: 10,
-                        failedTotalMedium: 20,
-                        failedTotalLow: 50
-                    )
-                }
+                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'DP'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
 
