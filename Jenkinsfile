@@ -1,4 +1,3 @@
-@Library("my_shared_library") _
 def COLOR_MAP = [
     'SUCCESS': 'good', 
     'FAILURE': 'danger',
