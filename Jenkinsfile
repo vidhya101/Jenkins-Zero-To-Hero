@@ -95,13 +95,19 @@ pipeline {
             }
         }
 
-        stage("Quality Gate") {
-            steps {
-                timeout(time: 1, unit: 'HOURS') {
-                    waitForQualityGate abortPipeline: true
+stage("Quality Gate") {
+    steps {
+        timeout(time: 1, unit: 'HOURS') {
+            script {
+                def qualityGate = waitForQualityGate()
+                echo "Quality Gate Status: ${qualityGate.status}"
+                if (qualityGate.status != 'OK') {
+                    error "Pipeline failed due to Quality Gate status: ${qualityGate.status}"
                 }
             }
         }
+    }
+}
 
         stage("UploadArtifact") {
             steps {
